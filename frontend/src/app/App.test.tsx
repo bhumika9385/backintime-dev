@@ -80,4 +80,26 @@ describe("BackInTime app", () => {
     expect(await screen.findByText("Configured profiles")).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("Home files").length).toBeGreaterThan(0));
   });
+
+  it("keeps complete paths available and lets users expand truncated paths", async () => {
+    render(
+      <MemoryRouter initialEntries={["/profiles"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const toggle = await screen.findByRole("button", { name: "Show full paths for Home files" });
+    expect(screen.getByText("C:\\Users\\Example\\Documents")).toHaveAttribute(
+      "title",
+      "C:\\Users\\Example\\Documents",
+    );
+    expect(screen.getByText("D:\\Backups")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("Hide full paths for Home files");
+    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")).toHaveClass("expanded");
+  });
 });

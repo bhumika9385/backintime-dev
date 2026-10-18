@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
 import { ApiError, api } from "../lib/api";
@@ -330,20 +330,51 @@ function ProfileList({ state, compact = false }: { state: LoadState<Profile[]>; 
   return (
     <div className="profile-list">
       {items.map((profile) => (
-        <article className="profile-row" key={profile.profile_id}>
-          <span className="profile-avatar" aria-hidden="true">{profile.name.trim().charAt(0).toUpperCase()}</span>
-          <div className="profile-detail">
-            <strong>{profile.name}</strong>
-            <span>{profile.sources.length} source{profile.sources.length === 1 ? "" : "s"}</span>
-          </div>
-          <div className="profile-destination">
-            <span>DESTINATION</span>
-            <code title={profile.target}>{profile.target}</code>
-          </div>
-          <span className="configured-badge"><span /> Configured</span>
-        </article>
+        <ProfileRow key={profile.profile_id} profile={profile} showSources={!compact} />
       ))}
     </div>
+  );
+}
+
+function ProfileRow({ profile, showSources }: { profile: Profile; showSources: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const pathsId = useId();
+
+  return (
+    <article className="profile-row">
+      <span className="profile-avatar" aria-hidden="true">{profile.name.trim().charAt(0).toUpperCase()}</span>
+      <div className="profile-detail">
+        <strong title={profile.name}>{profile.name}</strong>
+        <span>{profile.sources.length} source{profile.sources.length === 1 ? "" : "s"}</span>
+      </div>
+      <div id={pathsId} className={`profile-paths${expanded ? " expanded" : ""}`}>
+        {showSources && profile.sources.length > 0 && (
+          <div className="profile-path">
+            <span>{profile.sources.length === 1 ? "SOURCE" : "SOURCES"}</span>
+            <ul>
+              {profile.sources.map((source) => (
+                <li key={source}><code title={source}>{source}</code></li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="profile-path">
+          <span>DESTINATION</span>
+          <code title={profile.target}>{profile.target}</code>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="path-toggle"
+        aria-expanded={expanded}
+        aria-controls={pathsId}
+        aria-label={`${expanded ? "Hide" : "Show"} full paths for ${profile.name}`}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {expanded ? "Hide full paths" : "Show full paths"}
+      </button>
+      <span className="configured-badge"><span /> Configured</span>
+    </article>
   );
 }
 

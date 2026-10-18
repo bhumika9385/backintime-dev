@@ -103,12 +103,17 @@ h1 { margin-bottom: 5px; color: #202b3b; font-size: 25px; letter-spacing: -.85px
 .profile-list { padding: 0 18px 6px; }
 .profile-row { min-width: 0; display: flex; align-items: center; gap: 11px; padding: 13px 0; border-top: 1px solid #f0f1f4; }
 .profile-avatar { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border-radius: 9px; color: #5570bb; background: #eff2fa; font-size: 12px; font-weight: 700; }
-.profile-detail { min-width: 95px; display: flex; flex-direction: column; gap: 3px; }
+.profile-detail { min-width: 95px; flex: 0 1 200px; display: flex; flex-direction: column; gap: 3px; }
 .profile-detail strong { overflow: hidden; color: #364255; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .profile-detail > span { color: #99a1ad; font-size: 9px; }
-.profile-destination { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; padding-left: 8px; }
-.profile-destination > span { color: #a0a8b3; font-size: 8px; letter-spacing: .65px; }
-.profile-destination code { overflow: hidden; color: #737e8e; font-family: "Cascadia Code", Consolas, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-paths { min-width: 0; flex: 1 1 0; display: flex; flex-direction: column; gap: 8px; padding-left: 8px; }
+.profile-path { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.profile-path > span { color: #a0a8b3; font-size: 8px; letter-spacing: .65px; }
+.profile-path ul { min-width: 0; display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.profile-path code { display: block; overflow: hidden; color: #737e8e; font-family: "Cascadia Code", Consolas, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-paths.expanded code { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.path-toggle { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #d5dbe6; border-radius: 6px; color: #496bd0; background: #fff; font-size: 9px; font-weight: 600; cursor: pointer; }
+.path-toggle:focus-visible { outline: 2px solid #496bd0; outline-offset: 2px; }
 .configured-badge { display: flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 20px; color: #428a6c; background: #eff9f4; font-size: 8px; white-space: nowrap; }
 .configured-badge span { width: 5px; height: 5px; }
 .empty-state { display: grid; justify-items: center; padding: 23px 16px 30px; text-align: center; }
@@ -171,7 +176,10 @@ h1 { margin-bottom: 5px; color: #202b3b; font-size: 25px; letter-spacing: -.85px
   .stat-label { max-width: 80px; font-size: 8px; }
   .stat-value { margin-top: 13px; font-size: 22px; }
   .stat-note { font-size: 9px; line-height: 1.35; }
-  .profile-destination { display: none; }
+  .profile-row { flex-wrap: wrap; }
+  .profile-detail { flex: 1; min-width: 0; }
+  .profile-paths { order: 4; flex: 1 1 100%; padding-left: 43px; }
+  .path-toggle { order: 5; margin-left: 43px; }
   .footer-note { padding: 0 17px 14px; font-size: 8px; }
 }
 
