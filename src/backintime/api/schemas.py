@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from backintime.core.rsync_output import ChangeKind, Progress, TransferResult
 
 
 class HealthResponse(BaseModel):
@@ -69,6 +73,24 @@ class ProfilePatchRequest(BaseModel):
         return self
 
 
+class SnapshotEntryResponse(BaseModel):
+    """Safe metadata for one browsable snapshot entry."""
+
+    name: str
+    kind: Literal["directory", "file", "symlink", "other"]
+    size_bytes: int
+    modified_time_ns: int
+
+
+class SnapshotDirectoryResponse(BaseModel):
+    """One bounded page of entries from a snapshot directory."""
+
+    snapshot_id: str
+    path: str
+    entries: list[SnapshotEntryResponse]
+    next_cursor: str | None
+
+
 class ErrorDetail(BaseModel):
     """Stable API error fields."""
 
@@ -81,3 +103,69 @@ class ErrorResponse(BaseModel):
     """Consistent API error envelope."""
 
     error: ErrorDetail
+
+
+class TransferProgressResponse(BaseModel):
+    """Live or final transfer progress; ``percent`` is null when it cannot be known."""
+
+    model_config = ConfigDict(frozen=True)
+
+    indeterminate: bool
+    percent: int | None = Field(default=None, ge=0, le=100)
+    bytes_transferred: int = Field(ge=0)
+    files_remaining: int | None = Field(default=None, ge=0)
+    files_total: int | None = Field(default=None, ge=0)
+
+    @classmethod
+    def from_progress(cls, progress: Progress | None) -> TransferProgressResponse:
+        if progress is None:
+            return cls(indeterminate=True, bytes_transferred=0)
+        return cls(
+            indeterminate=progress.indeterminate,
+            percent=progress.percent,
+            bytes_transferred=progress.bytes_transferred,
+            files_remaining=progress.files_remaining,
+            files_total=progress.files_total,
+        )
+
+
+class TransferChangesResponse(BaseModel):
+    """Counts of paths rsync reported, by kind of change."""
+
+    model_config = ConfigDict(frozen=True)
+
+    total: int = Field(ge=0)
+    by_kind: dict[str, int]
+
+
+class TransferStatusResponse(BaseModel):
+    """Outcome of an rsync transfer for job and API status reporting.
+
+    Diagnostic text can include file paths, so only its size is exposed here;
+    the complete output belongs in the application log.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    status: str
+    succeeded: bool
+    exit_code: int
+    message: str
+    progress: TransferProgressResponse
+    changes: TransferChangesResponse
+    diagnostic_count: int = Field(ge=0)
+
+    @classmethod
+    def from_result(cls, result: TransferResult) -> TransferStatusResponse:
+        by_kind = {kind.value: 0 for kind in ChangeKind}
+        for change in result.changes:
+            by_kind[change.kind.value] += 1
+        return cls(
+            status=result.status.value,
+            succeeded=result.succeeded,
+            exit_code=result.exit_code,
+            message=result.message,
+            progress=TransferProgressResponse.from_progress(result.last_progress),
+            changes=TransferChangesResponse(total=len(result.changes), by_kind=by_kind),
+            diagnostic_count=len(result.diagnostics),
+        )

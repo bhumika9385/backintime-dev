@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
 import { ApiError, api } from "../lib/api";
@@ -9,47 +9,77 @@ const CONFIGURATION_DOCS_URL = "https://github.com/timevault-dev/BackInTime#gett
 
 type LoadState<T> =
   | { status: "loading" }
-  | { status: "error"; message: string; requestId?: string }
+  | { status: "error"; message: string; requestId?: string; failedAt: number }
   | { status: "success"; value: T };
 
-function useBackend() {
-  const [health, setHealth] = useState<LoadState<Health>>({ status: "loading" });
-  const [system, setSystem] = useState<LoadState<SystemInfo>>({ status: "loading" });
-  const [profiles, setProfiles] = useState<LoadState<Profile[]>>({ status: "loading" });
+type Reload = () => Promise<void>;
+
+const loadProfiles = async () => (await api.profiles()).profiles;
+
+/** Load one API resource and expose a reload that ignores calls while a request is in flight. */
+function useResource<T>(fetcher: () => Promise<T>) {
+  const [state, setState] = useState<LoadState<T>>({ status: "loading" });
+  const [refreshing, setRefreshing] = useState(false);
+  const inFlight = useRef(false);
+  const mounted = useRef(true);
+
+  const reload = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setRefreshing(true);
+    try {
+      const value = await fetcher();
+      if (mounted.current) setState({ status: "success", value });
+    } catch (error) {
+      if (mounted.current) setState(toErrorState(error));
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setRefreshing(false);
+    }
+  }, [fetcher]);
 
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      const [healthResult, systemResult, profilesResult] = await Promise.allSettled([
-        api.health(),
-        api.systemInfo(),
-        api.profiles(),
-      ]);
-      if (!active) return;
-
-      setHealth(toLoadState(healthResult, (value) => value));
-      setSystem(toLoadState(systemResult, (value) => value));
-      setProfiles(toLoadState(profilesResult, (value) => value.profiles));
-    };
-    void load();
+    mounted.current = true;
+    void reload();
     return () => {
-      active = false;
+      mounted.current = false;
     };
-  }, []);
+  }, [reload]);
 
-  return { health, system, profiles };
+  return { state, refreshing, reload };
 }
 
-function toLoadState<T, R>(
-  result: PromiseSettledResult<T>,
-  select: (value: T) => R,
-): LoadState<R> {
-  if (result.status === "fulfilled") return { status: "success", value: select(result.value) };
-  const error = result.reason;
+function useBackend() {
+  const health = useResource<Health>(api.health);
+  const system = useResource<SystemInfo>(api.systemInfo);
+  const profiles = useResource<Profile[]>(loadProfiles);
+  const reloadHealth = health.reload;
+  const reloadSystem = system.reload;
+  const reloadProfiles = profiles.reload;
+  const reloadAll = useCallback(async () => {
+    await Promise.all([reloadHealth(), reloadSystem(), reloadProfiles()]);
+  }, [reloadHealth, reloadSystem, reloadProfiles]);
+
+  return {
+    health: health.state,
+    system: system.state,
+    profiles: profiles.state,
+    refreshing: {
+      health: health.refreshing,
+      system: system.refreshing,
+      profiles: profiles.refreshing,
+      any: health.refreshing || system.refreshing || profiles.refreshing,
+    },
+    reload: { health: reloadHealth, system: reloadSystem, profiles: reloadProfiles, all: reloadAll },
+  };
+}
+
+function toErrorState(error: unknown): Extract<LoadState<never>, { status: "error" }> {
   return {
     status: "error",
     message: error instanceof Error ? error.message : "An unexpected API error occurred.",
     requestId: error instanceof ApiError ? error.requestId : undefined,
+    failedAt: Date.now(),
   };
 }
 
@@ -146,6 +176,8 @@ function App() {
                 profiles={backend.profiles}
                 selectedProfileId={activeProfileId}
                 onSelectProfile={setSelectedProfileId}
+                refreshing={backend.refreshing}
+                reload={backend.reload}
               />
             }
           />
@@ -156,6 +188,8 @@ function App() {
                 state={backend.profiles}
                 selectedProfileId={activeProfileId}
                 onSelectProfile={setSelectedProfileId}
+                refreshing={backend.refreshing.profiles}
+                onReload={backend.reload.profiles}
               />
             }
           />
@@ -174,18 +208,24 @@ function navClass(isActive: boolean) {
   return `nav-item${isActive ? " active" : ""}`;
 }
 
+type Backend = ReturnType<typeof useBackend>;
+
 function Dashboard({
   health,
   system,
   profiles,
   selectedProfileId,
   onSelectProfile,
+  refreshing,
+  reload,
 }: {
   health: LoadState<Health>;
   system: LoadState<SystemInfo>;
   profiles: LoadState<Profile[]>;
   selectedProfileId?: string | null;
   onSelectProfile?: (id: string) => void;
+  refreshing: Backend["refreshing"];
+  reload: Backend["reload"];
 }) {
   return (
     <section className="page-content">
@@ -195,10 +235,19 @@ function Dashboard({
           <h1>Overview</h1>
           <p className="subtitle">A clear view of your backup setup and local service.</p>
         </div>
+        <RefreshButton
+          label="Refresh overview"
+          refreshing={refreshing.any}
+          onRefresh={reload.all}
+        />
       </div>
 
-      {health.status === "error" && <ErrorBanner state={health} />}
-      {profiles.status === "error" && <ErrorBanner state={profiles} />}
+      {health.status === "error" && (
+        <ErrorBanner subject="service status" state={health} retrying={refreshing.health} onRetry={reload.health} />
+      )}
+      {profiles.status === "error" && (
+        <ErrorBanner subject="profiles" state={profiles} retrying={refreshing.profiles} onRetry={reload.profiles} />
+      )}
 
       <section className="service-banner" aria-label="Backup service status">
         <div className={`service-symbol ${health.status === "success" ? "ready" : ""}`}>
@@ -217,7 +266,7 @@ function Dashboard({
             {health.status === "success"
               ? "The local API is reachable. Backup operations are not available yet."
               : health.status === "error"
-                ? "Start the local API and refresh this page to reconnect."
+                ? "Start the local API, then select Retry to reconnect."
                 : "Connecting to the local API."}
           </p>
         </div>
@@ -279,7 +328,7 @@ function Dashboard({
           {system.status === "loading" ? (
             <p className="empty-copy">Checking system…</p>
           ) : system.status === "error" ? (
-            <ErrorBanner state={system} />
+            <ErrorBanner subject="system information" state={system} retrying={refreshing.system} onRetry={reload.system} />
           ) : (
             <dl className="readiness-list">
               <div><dt>Operating system</dt><dd>{system.value.platform}</dd></div>
@@ -336,10 +385,14 @@ function Profiles({
   state,
   selectedProfileId,
   onSelectProfile,
+  refreshing,
+  onReload,
 }: {
   state: LoadState<Profile[]>;
   selectedProfileId?: string | null;
   onSelectProfile?: (id: string) => void;
+  refreshing: boolean;
+  onReload: Reload;
 }) {
   return (
     <section className="page-content">
@@ -349,9 +402,10 @@ function Profiles({
           <h1>Profiles</h1>
           <p className="subtitle">Source and destination settings loaded from the local configuration.</p>
         </div>
+        <RefreshButton label="Refresh profiles" refreshing={refreshing} onRefresh={onReload} />
       </div>
       {state.status === "error" ? (
-        <ErrorBanner state={state} />
+        <ErrorBanner subject="profiles" state={state} retrying={refreshing} onRetry={onReload} />
       ) : (
         <section className="panel full-panel">
           <div className="panel-heading">
@@ -552,15 +606,64 @@ function ProfileList({
   );
 }
 
-function ErrorBanner({ state }: { state: Extract<LoadState<unknown>, { status: "error" }> }) {
+function ErrorBanner({
+  subject,
+  state,
+  retrying = false,
+  onRetry,
+}: {
+  subject: string;
+  state: Extract<LoadState<unknown>, { status: "error" }>;
+  retrying?: boolean;
+  onRetry?: Reload;
+}) {
   return (
-    <div className="error-banner" role="alert">
+    // Keyed by failure time so a failed retry re-announces the alert.
+    <div className="error-banner" role="alert" key={state.failedAt}>
       <span className="error-icon"><Icon name="alert" /></span>
-      <div>
-        <strong>Could not load data</strong>
+      <div className="error-copy">
+        <strong>Could not load {subject}</strong>
         <p>{state.message}{state.requestId ? ` Request ID: ${state.requestId}` : ""}</p>
+        <p className="error-time">
+          Last attempt failed at {new Date(state.failedAt).toLocaleTimeString()}.
+        </p>
       </div>
+      {onRetry && (
+        <button
+          type="button"
+          className="retry-button"
+          disabled={retrying}
+          aria-busy={retrying}
+          aria-label={retrying ? `Retrying ${subject}` : `Retry loading ${subject}`}
+          onClick={() => void onRetry()}
+        >
+          {retrying ? "Retrying…" : "Retry"}
+        </button>
+      )}
     </div>
+  );
+}
+
+function RefreshButton({
+  label,
+  refreshing,
+  onRefresh,
+}: {
+  label: string;
+  refreshing: boolean;
+  onRefresh: Reload;
+}) {
+  return (
+    <button
+      type="button"
+      className="refresh-button"
+      disabled={refreshing}
+      aria-busy={refreshing}
+      onClick={() => void onRefresh()}
+    >
+      <Icon name="refresh" className={`refresh-icon${refreshing ? " spinning" : ""}`} />
+      {refreshing ? "Refreshing…" : label}
+    </button>
   );
 }
 
