@@ -92,7 +92,9 @@ Configuration is versioned JSON stored at
 when `XDG_CONFIG_HOME` is not set. `check-config` accepts `--config PATH` to inspect a
 specific file. No backup, restore, or snapshot deletion command is implemented yet.
 See [the configuration guide](docs/configuration.md) for the current schema, validation
-rules, and a disposable example.
+rules, and a disposable example. `backintime retention-preview --profile ID` shows which
+snapshots a profile's [retention rules](docs/configuration.md#retention-rules) would
+remove, without deleting anything.
 
 ### Repository health diagnostics
 

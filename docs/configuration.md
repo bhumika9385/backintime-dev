@@ -39,6 +39,7 @@ replaced with defaults.
 | `sources` | Yes | Non-empty array of absolute source path strings. |
 | `target` | Yes | Absolute target path string. |
 | `excludes` | No | Array of exclusion-rule strings. Defaults to an empty array. |
+| `retention` | No | Retention rules used by `retention-preview`; see [Retention rules](#retention-rules). |
 
 Profile IDs must be unique. A target may not equal a source or be inside a source
 directory, which prevents configuring a backup destination that would recursively
@@ -53,6 +54,44 @@ are stored but are not currently applied to any backup.
 Unknown top-level and per-profile fields are preserved when the configuration is loaded
 and saved. They are extension points, not currently supported settings; do not rely on
 an unknown option affecting application behavior.
+
+## Retention rules
+
+A profile can define a `retention` object. It is read by `backintime retention-preview`,
+which only reports what would be removed. **No command deletes snapshots yet.**
+
+```json
+"retention": {"keep_last": 3, "keep_daily": 7, "keep_weekly": 4, "keep_monthly": 12, "keep_yearly": 2}
+```
+
+| Rule | Keeps |
+| --- | --- |
+| `keep_last` | The newest N snapshots. |
+| `keep_daily` | The newest snapshot of each of the N most recent days that have one. |
+| `keep_weekly` | The newest snapshot of each of the N most recent ISO weeks that have one. |
+| `keep_monthly` | The newest snapshot of each of the N most recent months that have one. |
+| `keep_yearly` | The newest snapshot of each of the N most recent years that have one. |
+
+Every rule is optional and defaults to `0`, but at least one rule must be greater than
+zero. Values must be integers from 0 to 100000, and unknown rule names are rejected. A
+snapshot is kept when any rule keeps it. The following safety rules override the policy:
+
+- Only snapshots whose `info.json` says `"state": "complete"` (with a matching
+  `snapshot_id`) can be selected for removal. Incomplete or invalid snapshots are
+  reported as `skip`.
+- Snapshots whose metadata has `"protected": true` or a `"name"` string are always kept.
+- The newest valid snapshot is always kept, so the last restorable backup cannot be
+  selected for removal.
+
+Snapshot times come from the snapshot ID and are compared as they are written, without
+time-zone conversion.
+
+```sh
+backintime retention-preview --profile demo
+backintime retention-preview --profile demo --keep-last 5 --keep-monthly 6
+```
+
+`--keep-*` options override the matching rules from the profile for that preview only.
 
 ## Example
 

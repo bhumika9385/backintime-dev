@@ -16,6 +16,7 @@ class SnapshotRecord:
     path: Path
     healthy: bool
     name: str | None = None
+    protected: bool = False
 
 
 class Repository:
@@ -51,7 +52,7 @@ class Repository:
             except ValidationError:
                 continue
 
-            healthy, name = self._read_metadata(entry, snapshot_id)
+            healthy, name, protected = self._read_metadata(entry, snapshot_id)
             if healthy or include_incomplete:
                 records.append(
                     SnapshotRecord(
@@ -59,23 +60,26 @@ class Repository:
                         path=entry,
                         healthy=healthy,
                         name=name,
+                        protected=protected,
                     )
                 )
 
         return sorted(records, key=lambda record: record.snapshot_id, reverse=True)
 
     @staticmethod
-    def _read_metadata(snapshot_path: Path, snapshot_id: SnapshotID) -> tuple[bool, str | None]:
+    def _read_metadata(
+        snapshot_path: Path, snapshot_id: SnapshotID
+    ) -> tuple[bool, str | None, bool]:
         metadata_path = snapshot_path / "info.json"
         if metadata_path.is_symlink() or not metadata_path.is_file():
-            return False, None
+            return False, None, False
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            return False, None
+            return False, None, False
         if not isinstance(metadata, dict):
-            return False, None
+            return False, None, False
         if metadata.get("snapshot_id") != str(snapshot_id) or metadata.get("state") != "complete":
-            return False, None
+            return False, None, False
         name = metadata.get("name")
-        return True, name if isinstance(name, str) else None
+        return True, name if isinstance(name, str) else None, metadata.get("protected") is True
