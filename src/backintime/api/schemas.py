@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backintime.core.rsync_output import ChangeKind, Progress, TransferResult
@@ -149,3 +151,31 @@ class TransferStatusResponse(BaseModel):
             changes=TransferChangesResponse(total=len(result.changes), by_kind=by_kind),
             diagnostic_count=len(result.diagnostics),
         )
+
+
+class JobLogEntryResponse(BaseModel):
+    """A non-sensitive job lifecycle message."""
+
+    timestamp: str
+    message: str
+
+
+class JobResponse(BaseModel):
+    """Current status of one background backup job."""
+
+    job_id: str
+    profile_id: str
+    state: Literal["queued", "running", "completed", "failed", "cancelled"]
+    created_at: str
+    updated_at: str
+    files_copied: int
+    bytes_copied: int
+    snapshot_id: str | None
+    error_message: str | None
+    logs: list[JobLogEntryResponse]
+
+
+class JobListResponse(BaseModel):
+    """Known background jobs, newest first."""
+
+    jobs: list[JobResponse]

@@ -131,8 +131,9 @@ npm run dev
 The Vite development server proxies `/api` to the loopback-only API. The API's
 interactive OpenAPI documentation is available at `http://127.0.0.1:8000/docs`.
 The current API supports health checks, non-sensitive runtime capability checks, and
-profile listing/detail and profile configuration CRUD. It does not start backups,
-expose snapshots, or perform restore/prune operations. Profile `GET` responses include
+profile listing/detail, profile configuration CRUD, and background backup jobs (see
+[Background backup jobs](#background-backup-jobs)). It does not expose snapshots or
+perform restore/prune operations. Profile `GET` responses include
 an `ETag`; send that value as `If-Match` when creating, updating, or deleting profiles.
 Stale revisions are rejected with HTTP 412. Profile deletion only removes configuration
 and never deletes target files. Run a single API process so in-process update locking
@@ -186,6 +187,40 @@ variables.** Every `VITE_*` value is embedded in the built JavaScript and can be
 by anyone who loads the frontend. The local API has no authentication, so no
 credential is needed here.
 
+#### Background backup jobs
+
+The API runs backups as background jobs, one at a time, on a single worker thread:
+
+| Request | Result |
+| --- | --- |
+| `POST /api/v1/profiles/{profile_id}/backups` | Queues a backup and returns the job (`202`). Returns `409 JOB_CONFLICT` if that profile already has a queued or running job. |
+| `GET /api/v1/jobs` | Lists jobs, newest first. |
+| `GET /api/v1/jobs/{job_id}` | Returns one job: `state`, `files_copied`, `bytes_copied`, `snapshot_id`, `error_message`, and lifecycle `logs`. |
+| `POST /api/v1/jobs/{job_id}/cancel` | Cancels a queued job immediately, or asks a running job to stop at its next safe point (between files and copy chunks). |
+
+Job states are `queued`, `running`, `completed`, `failed`, and `cancelled`.
+
+- **Snapshots.** A snapshot's `info.json` says `running` while it is copied, and
+  `complete` only after every source was copied. A cancelled or failed backup is marked
+  `cancelled` or `failed`, so it is never listed as a valid snapshot.
+- **Job records.** Records are written atomically to
+  `$XDG_STATE_HOME/backintime/jobs.json` (default `~/.local/state/backintime/jobs.json`),
+  with permissions `0600` on POSIX.
+- **Restart behaviour.** If the API stops while a job is `queued` or `running`, the next
+  start marks that job `failed` with "The service restarted before this job finished." The
+  backup is not resumed, and its snapshot keeps its non-complete state. Completed,
+  failed, and cancelled jobs are kept across restarts.
+- **One process.** The job service holds an exclusive lock on `jobs.json.lock` while it
+  runs. A second API process using the same state file gets
+  `503 JOB_SERVICE_UNAVAILABLE` from the job endpoints instead of running jobs twice. The
+  service starts on the first job request and releases the lock when the API shuts down.
+- **Logs.** Job logs contain fixed lifecycle messages only. Failures are recorded as
+  "Backup operation failed." without exception text, so paths and configuration values
+  are not exposed through the API or the job state file.
+
+Like other state-changing requests, starting and cancelling jobs require an allowed
+browser `Origin`.
+
 Run frontend checks from `frontend/` with `npm test` and `npm run build`. The API and
 frontend have been exercised in the development environment; Linux and rsync-specific
 backup behaviour has not.
@@ -199,8 +234,9 @@ The initial foundation provides profile and configuration validation, atomic
 configuration writes, strict snapshot-ID parsing, read-only listing of snapshots marked
 complete in metadata, read-only repository health diagnostics, path-boundary
 validation, basic CLI version/help/config checks,
-and a local FastAPI/React interface for service status and configured profiles. The
-backup engine, restore, deletion, retention, scheduling, and snapshot UI are not
+a local FastAPI/React interface for service status and configured profiles, and an
+experimental local copy backup run as a background job through the API. Restore,
+deletion, retention, scheduling, rsync-based transfer, and the snapshot UI are not
 implemented. This milestone has not been validated on Linux or with rsync.
 
 ## Testing Strategy
