@@ -33,6 +33,15 @@ a {
   text-decoration: none;
 }
 
+/* Shared sizing for the inline SVG icons in app/icons.tsx. */
+.icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+}
+
 .app-shell {
   min-height: 100vh;
 }
@@ -138,8 +147,7 @@ a {
 
 .nav-icon {
   width: 18px;
-  text-align: center;
-  font-size: 16px;
+  height: 18px;
   color: #8792a2;
 }
 
@@ -238,7 +246,7 @@ a {
   font-size: 10px;
 }
 
-.local-badge span {
+.local-badge .icon {
   font-size: 15px;
 }
 
@@ -541,8 +549,9 @@ h1 {
   white-space: nowrap;
 }
 
-.text-link span {
-  padding-left: 3px;
+.text-link .icon {
+  margin-left: 3px;
+  vertical-align: -0.15em;
 }
 
 .profile-list {
@@ -902,17 +911,10 @@ h1 {
 }
 
 .notice-icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #a9b8e2;
-  border-radius: 50%;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
   color: #6077b7;
-  font-family: Georgia, serif;
-  font-size: 10px;
-  font-weight: 700;
 }
 
 .notice p {

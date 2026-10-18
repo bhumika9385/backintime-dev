@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
 import { ApiError, api } from "../lib/api";
+import { Icon, type IconName } from "./icons";
 import type { Health, Profile, SystemInfo } from "../types/api";
 
 const CONFIGURATION_DOCS_URL = "https://github.com/timevault-dev/BackInTime#getting-started";
@@ -87,21 +88,21 @@ function App() {
         <p className="nav-label">WORKSPACE</p>
         <nav aria-label="Main navigation">
           <NavLink to="/" end className={({ isActive }) => navClass(isActive)}>
-            <span className="nav-icon" aria-hidden="true">⌂</span>
+            <Icon name="home" className="nav-icon" />
             Overview
           </NavLink>
           <NavLink to="/profiles" className={({ isActive }) => navClass(isActive)}>
-            <span className="nav-icon" aria-hidden="true">▤</span>
+            <Icon name="profiles" className="nav-icon" />
             Profiles
             {profileCount !== undefined && <span className="nav-count">{profileCount}</span>}
           </NavLink>
           <span className="nav-item disabled" aria-disabled="true">
-            <span className="nav-icon" aria-hidden="true">◷</span>
+            <Icon name="clock" className="nav-icon" />
             Snapshots
             <span className="soon-label">Soon</span>
           </span>
           <span className="nav-item disabled" aria-disabled="true">
-            <span className="nav-icon" aria-hidden="true">⚙</span>
+            <Icon name="settings" className="nav-icon" />
             Settings
           </span>
         </nav>
@@ -131,7 +132,7 @@ function App() {
             </span>
           </div>
           <div className="topbar-right">
-            <span className="local-badge"><span aria-hidden="true">⌑</span> This device</span>
+            <span className="local-badge"><Icon name="device" /> This device</span>
             <span className="avatar" aria-label="Local user">L</span>
           </div>
         </header>
@@ -201,7 +202,7 @@ function Dashboard({
 
       <section className="service-banner" aria-label="Backup service status">
         <div className={`service-symbol ${health.status === "success" ? "ready" : ""}`}>
-          <span aria-hidden="true">{health.status === "success" ? "✓" : "!"}</span>
+          <Icon name={health.status === "success" ? "check" : "alert"} />
         </div>
         <div className="service-copy">
           <span className="eyebrow">LOCAL BACKUP SERVICE</span>
@@ -243,11 +244,11 @@ function Dashboard({
                 : "!"
           }
           note={profiles.status === "success" ? "Configured on this device" : "Profile data unavailable"}
-          icon="▤"
+          icon="profiles"
           accent="blue"
         />
-        <StatCard label="SNAPSHOTS" value="—" note="Available after backup engine setup" icon="◷" accent="violet" />
-        <StatCard label="LAST BACKUP" value="—" note="No backup operations are available yet" icon="↻" accent="green" />
+        <StatCard label="SNAPSHOTS" value="—" note="Available after backup engine setup" icon="clock" accent="violet" />
+        <StatCard label="LAST BACKUP" value="—" note="No backup operations are available yet" icon="refresh" accent="green" />
       </div>
 
       <div className="content-grid">
@@ -257,7 +258,7 @@ function Dashboard({
               <h2>Backup profiles</h2>
               <p>Configured source and destination pairs</p>
             </div>
-            <NavLink className="text-link" to="/profiles">View profiles <span aria-hidden="true">→</span></NavLink>
+            <NavLink className="text-link" to="/profiles">View profiles <Icon name="arrowRight" /></NavLink>
           </div>
           <ProfileList
             state={profiles}
@@ -273,7 +274,7 @@ function Dashboard({
               <h2>System readiness</h2>
               <p>Runtime checks from this device</p>
             </div>
-            <span className="check-icon" aria-hidden="true">✓</span>
+            <span className="check-icon"><Icon name="check" /></span>
           </div>
           {system.status === "loading" ? (
             <p className="empty-copy">Checking system…</p>
@@ -297,7 +298,7 @@ function Dashboard({
       </div>
 
       <div className="notice">
-        <span className="notice-icon" aria-hidden="true">i</span>
+        <Icon name="info" className="notice-icon" />
         <p>
           <strong>Early development.</strong> Profile configuration and system checks are
           available. Backup, restore, snapshot browsing, and retention are still under
@@ -318,12 +319,12 @@ function StatCard({
   label: string;
   value: string;
   note: string;
-  icon: string;
+  icon: IconName;
   accent: string;
 }) {
   return (
     <article className="stat-card">
-      <div className={`stat-icon ${accent}`} aria-hidden="true">{icon}</div>
+      <div className={`stat-icon ${accent}`}><Icon name={icon} /></div>
       <span className="stat-label">{label}</span>
       <strong className="stat-value">{value}</strong>
       <span className="stat-note">{note}</span>
@@ -368,7 +369,7 @@ function Profiles({
         </section>
       )}
       <div className="notice">
-        <span className="notice-icon" aria-hidden="true">i</span>
+        <Icon name="info" className="notice-icon" />
         <p>Profiles can currently be configured by editing the validated local JSON configuration. In-app editing is not available.</p>
       </div>
     </section>
@@ -378,7 +379,7 @@ function Profiles({
 function EmptyProfiles() {
   return (
     <div className="empty-state" role="status">
-      <span className="empty-icon" aria-hidden="true">▤</span>
+      <span className="empty-icon"><Icon name="profiles" /></span>
       <h3>No profiles configured</h3>
       <p className="empty-explanation">
         No backup profiles were found in your local configuration. In-app profile creation is not currently supported.
@@ -393,7 +394,7 @@ function EmptyProfiles() {
         className="empty-link text-link"
         aria-label="View configuration instructions in README"
       >
-        View configuration instructions in README <span aria-hidden="true">→</span>
+        View configuration instructions in README <Icon name="arrowRight" />
       </a>
     </div>
   );
@@ -441,9 +442,7 @@ function CopyButton({
         aria-label={label}
         title={`${label}: ${text}`}
       >
-        <span aria-hidden="true" className="copy-icon">
-          {copied ? "✓" : error ? "!" : "⧉"}
-        </span>
+        <Icon name={copied ? "check" : error ? "alert" : "copy"} className="copy-icon" />
         <span className="copy-text">
           {copied ? "Copied" : error ? "Failed" : "Copy"}
         </span>
@@ -556,7 +555,7 @@ function ProfileList({
 function ErrorBanner({ state }: { state: Extract<LoadState<unknown>, { status: "error" }> }) {
   return (
     <div className="error-banner" role="alert">
-      <span aria-hidden="true">!</span>
+      <span className="error-icon"><Icon name="alert" /></span>
       <div>
         <strong>Could not load data</strong>
         <p>{state.message}{state.requestId ? ` Request ID: ${state.requestId}` : ""}</p>
@@ -571,7 +570,7 @@ function NotFound() {
       <div className="page-heading">
         <div><p className="eyebrow">404</p><h1>Page not found</h1><p className="subtitle">This section is not available.</p></div>
       </div>
-      <NavLink className="text-link" to="/">Return to overview →</NavLink>
+      <NavLink className="text-link" to="/">Return to overview <Icon name="arrowRight" /></NavLink>
     </section>
   );
 }
