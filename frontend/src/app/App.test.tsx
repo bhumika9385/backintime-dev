@@ -47,7 +47,7 @@ describe("BackInTime app", () => {
     );
 
     expect(await screen.findByText("Service is ready")).toBeInTheDocument();
-    expect(screen.getByText("Home files")).toBeInTheDocument();
+    expect(screen.getAllByText("Home files").length).toBeGreaterThan(0);
     expect(screen.getByText(/No backup has been run by this application/)).toBeInTheDocument();
     expect(screen.getByText("Not installed")).toBeInTheDocument();
   });
@@ -81,19 +81,119 @@ describe("BackInTime app", () => {
     await waitFor(() => expect(screen.getAllByText("Home files").length).toBeGreaterThan(0));
   });
 
-  it("explains the empty-profile state without offering profile creation", async () => {
+  it("displays the selected profile in the header and allows switching selection (#29)", async () => {
+    const multiProfileResponse = {
+      profiles: [
+        {
+          profile_id: "p1",
+          name: "Documents Profile",
+          sources: ["/home/user/Documents"],
+          target: "/media/backup/docs",
+          excludes: [],
+        },
+        {
+          profile_id: "p2",
+          name: "Photos Profile",
+          sources: ["/home/user/Pictures"],
+          target: "/media/backup/photos",
+          excludes: [],
+        },
+      ],
+    };
+
+    mockApi(multiProfileResponse);
+
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    // Initial selection should default to the first profile
+    const docProfiles = await screen.findAllByText("Documents Profile");
+    expect(docProfiles.length).toBeGreaterThan(0);
+    const headerSelection = screen.getByLabelText("Current profile selection");
+    expect(within(headerSelection).getByText("Documents Profile")).toBeInTheDocument();
+
+    // Select the second profile
+    const selectButtons = screen.getAllByRole("button", { name: /Select profile/ });
+    expect(selectButtons.length).toBe(2);
+    fireEvent.click(selectButtons[1]);
+
+    // Header updates to the newly selected profile
+    expect(within(headerSelection).getByText("Photos Profile")).toBeInTheDocument();
+  });
+
+  it("copies source and target paths with feedback (#24)", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: writeTextMock,
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const homeProfiles = await screen.findAllByText("Home files");
+    expect(homeProfiles.length).toBeGreaterThan(0);
+
+    const copySrcBtn = screen.getByRole("button", { name: "Copy source path" });
+    fireEvent.click(copySrcBtn);
+
+    expect(writeTextMock).toHaveBeenCalledWith("C:\\Users\\Example\\Documents");
+    expect(await screen.findByText("Copied")).toBeInTheDocument();
+
+    const copyDestBtn = screen.getByRole("button", { name: "Copy destination path" });
+    fireEvent.click(copyDestBtn);
+    expect(writeTextMock).toHaveBeenCalledWith("D:\\Backups");
+  });
+
+  it("renders accessible long paths with title tooltips (#23, #25)", async () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const homeProfiles = await screen.findAllByText("Home files");
+    expect(homeProfiles.length).toBeGreaterThan(0);
+
+    const srcCode = screen.getByLabelText("Source path: C:\\Users\\Example\\Documents");
+    expect(srcCode).toHaveAttribute("title", "C:\\Users\\Example\\Documents");
+    expect(srcCode).toHaveAttribute("tabIndex", "0");
+
+    const destCode = screen.getByLabelText("Destination path: D:\\Backups");
+    expect(destCode).toHaveAttribute("title", "D:\\Backups");
+    expect(destCode).toHaveAttribute("tabIndex", "0");
+
+    // Skip link exists and points to main content
+    const skipLink = screen.getByText("Skip to main content");
+    expect(skipLink).toBeInTheDocument();
+    expect(skipLink).toHaveAttribute("href", "#main-content");
+  });
+
+  it("displays helpful empty-profile state when no profiles are configured (#28)", async () => {
     mockApi({ profiles: [] });
 
     render(
-      <MemoryRouter initialEntries={["/profiles"]}>
+      <MemoryRouter>
         <App />
       </MemoryRouter>,
     );
 
     expect(await screen.findByText("No profiles configured")).toBeInTheDocument();
-    expect(screen.getByText(/Profiles cannot be created in the app yet/)).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /Read the configuration instructions/ });
-    expect(link).toHaveAttribute("href", "https://github.com/timevault-dev/BackInTime#getting-started");
-    expect(screen.queryByRole("button", { name: /add profile/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/No backup profiles were found in your local configuration/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /View configuration instructions in README/ }),
+    ).toBeInTheDocument();
+
+    const headerSelection = screen.getByLabelText("Current profile selection");
+    expect(within(headerSelection).getByText("No profile selected")).toBeInTheDocument();
   });
 });
