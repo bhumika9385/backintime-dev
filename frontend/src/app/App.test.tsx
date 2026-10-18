@@ -196,4 +196,23 @@ describe("BackInTime app", () => {
     const headerSelection = screen.getByLabelText("Current profile selection");
     expect(within(headerSelection).getByText("No profile selected")).toBeInTheDocument();
   });
+
+  it("uses decorative local SVG icons instead of text symbols (#27)", async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Service is ready")).toBeInTheDocument();
+    const icons = container.querySelectorAll("svg.icon");
+    expect(icons.length).toBeGreaterThan(0);
+    icons.forEach((icon) => {
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(icon).toHaveAttribute("focusable", "false");
+    });
+    expect(container.textContent).not.toMatch(/[⌂▤◷⚙⌑✓↻→⧉]/u);
+    expect(screen.getByRole("link", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Profiles/ })).toBeInTheDocument();
+  });
 });
