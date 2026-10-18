@@ -54,11 +54,24 @@ function toLoadState<T, R>(
 
 function App() {
   const backend = useBackend();
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+
+  const profilesList = backend.profiles.status === "success" ? backend.profiles.value : [];
+  const activeProfileId =
+    selectedProfileId && profilesList.some((p) => p.profile_id === selectedProfileId)
+      ? selectedProfileId
+      : profilesList.length > 0
+        ? profilesList[0].profile_id
+        : null;
+
+  const selectedProfile = profilesList.find((p) => p.profile_id === activeProfileId) ?? null;
+
   const profileCount =
     backend.profiles.status === "success" ? backend.profiles.value.length : undefined;
 
   return (
     <div className="app-shell">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <aside className="sidebar">
         <a className="brand" href="/" aria-label="BackInTime home">
           <span className="brand-mark" aria-hidden="true">
@@ -105,9 +118,18 @@ function App() {
         </div>
       </aside>
 
-      <main className="main-area">
+      <main id="main-content" className="main-area" tabIndex={-1}>
         <header className="topbar">
           <div className="breadcrumb">BackInTime <span>/</span> Local workspace</div>
+          <div className="header-selection" aria-label="Current profile selection">
+            <span className="header-selection-label">Selected profile:</span>
+            <span
+              className={`header-selection-value ${selectedProfile ? "active" : "fallback"}`}
+              title={selectedProfile ? selectedProfile.name : "No profile selected"}
+            >
+              {selectedProfile ? selectedProfile.name : "No profile selected"}
+            </span>
+          </div>
           <div className="topbar-right">
             <span className="local-badge"><span aria-hidden="true">⌑</span> This device</span>
             <span className="avatar" aria-label="Local user">L</span>
@@ -116,9 +138,26 @@ function App() {
         <Routes>
           <Route
             path="/"
-            element={<Dashboard health={backend.health} system={backend.system} profiles={backend.profiles} />}
+            element={
+              <Dashboard
+                health={backend.health}
+                system={backend.system}
+                profiles={backend.profiles}
+                selectedProfileId={activeProfileId}
+                onSelectProfile={setSelectedProfileId}
+              />
+            }
           />
-          <Route path="/profiles" element={<Profiles state={backend.profiles} />} />
+          <Route
+            path="/profiles"
+            element={
+              <Profiles
+                state={backend.profiles}
+                selectedProfileId={activeProfileId}
+                onSelectProfile={setSelectedProfileId}
+              />
+            }
+          />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <footer className="footer-note">
@@ -138,10 +177,14 @@ function Dashboard({
   health,
   system,
   profiles,
+  selectedProfileId,
+  onSelectProfile,
 }: {
   health: LoadState<Health>;
   system: LoadState<SystemInfo>;
   profiles: LoadState<Profile[]>;
+  selectedProfileId?: string | null;
+  onSelectProfile?: (id: string) => void;
 }) {
   return (
     <section className="page-content">
@@ -216,7 +259,12 @@ function Dashboard({
             </div>
             <NavLink className="text-link" to="/profiles">View profiles <span aria-hidden="true">→</span></NavLink>
           </div>
-          <ProfileList state={profiles} compact />
+          <ProfileList
+            state={profiles}
+            compact
+            selectedProfileId={selectedProfileId}
+            onSelectProfile={onSelectProfile}
+          />
         </section>
 
         <section className="panel readiness-panel">
@@ -283,7 +331,15 @@ function StatCard({
   );
 }
 
-function Profiles({ state }: { state: LoadState<Profile[]> }) {
+function Profiles({
+  state,
+  selectedProfileId,
+  onSelectProfile,
+}: {
+  state: LoadState<Profile[]>;
+  selectedProfileId?: string | null;
+  onSelectProfile?: (id: string) => void;
+}) {
   return (
     <section className="page-content">
       <div className="page-heading">
@@ -304,7 +360,11 @@ function Profiles({ state }: { state: LoadState<Profile[]> }) {
             </div>
             {state.status === "success" && <span className="result-count">{state.value.length} total</span>}
           </div>
-          <ProfileList state={state} />
+          <ProfileList
+            state={state}
+            selectedProfileId={selectedProfileId}
+            onSelectProfile={onSelectProfile}
+          />
         </section>
       )}
       <div className="notice">
@@ -315,47 +375,180 @@ function Profiles({ state }: { state: LoadState<Profile[]> }) {
   );
 }
 
-function ProfileList({ state, compact = false }: { state: LoadState<Profile[]>; compact?: boolean }) {
+function EmptyProfiles() {
+  return (
+    <div className="empty-state" role="status">
+      <span className="empty-icon" aria-hidden="true">▤</span>
+      <h3>No profiles configured</h3>
+      <p className="empty-explanation">
+        No backup profiles were found in your local configuration. In-app profile creation is not currently supported.
+      </p>
+      <p className="empty-instructions">
+        Configure profiles manually in your local configuration file.
+      </p>
+      <a
+        href={CONFIGURATION_DOCS_URL}
+        target="_blank"
+        rel="noreferrer"
+        className="empty-link text-link"
+        aria-label="View configuration instructions in README"
+      >
+        View configuration instructions in README <span aria-hidden="true">→</span>
+      </a>
+    </div>
+  );
+}
+
+function CopyButton({
+  text,
+  label,
+}: {
+  text: string;
+  label: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState(false);
+
+  const handleCopy = async () => {
+    if (!text || text.trim() === "") {
+      setError(true);
+      setTimeout(() => setError(false), 2000);
+      return;
+    }
+
+    try {
+      if (typeof navigator !== "undefined" && navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setError(false);
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        throw new Error("Clipboard unavailable");
+      }
+    } catch {
+      setError(true);
+      setCopied(false);
+      setTimeout(() => setError(false), 2000);
+    }
+  };
+
+  return (
+    <div className="copy-action">
+      <button
+        type="button"
+        className={`copy-button ${copied ? "copied" : ""} ${error ? "copy-error" : ""}`}
+        onClick={handleCopy}
+        aria-label={label}
+        title={`${label}: ${text}`}
+      >
+        <span aria-hidden="true" className="copy-icon">
+          {copied ? "✓" : error ? "!" : "⧉"}
+        </span>
+        <span className="copy-text">
+          {copied ? "Copied" : error ? "Failed" : "Copy"}
+        </span>
+      </button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {copied ? `${label} copied` : error ? `Failed to copy ${label}` : ""}
+      </span>
+    </div>
+  );
+}
+
+function ProfileList({
+  state,
+  compact = false,
+  selectedProfileId,
+  onSelectProfile,
+}: {
+  state: LoadState<Profile[]>;
+  compact?: boolean;
+  selectedProfileId?: string | null;
+  onSelectProfile?: (id: string) => void;
+}) {
   if (state.status === "loading") return <p className="empty-copy">Loading configured profiles…</p>;
   if (state.status === "error") return <p className="empty-copy">Profile information could not be loaded.</p>;
   if (state.value.length === 0) {
-    return (
-      <div className="empty-state">
-        <span className="empty-icon" aria-hidden="true">▤</span>
-        <h3>No profiles configured</h3>
-        <p>
-          The local configuration does not contain any profiles yet, or no configuration
-          file exists.
-        </p>
-        <p>
-          Profiles cannot be created in the app yet. Add a profile to the local JSON
-          configuration file, then reload this page.
-        </p>
-        <a className="text-link" href={CONFIGURATION_DOCS_URL} target="_blank" rel="noreferrer">
-          Read the configuration instructions<span aria-hidden="true">↗</span>
-          <span className="visually-hidden"> (opens in a new tab)</span>
-        </a>
-      </div>
-    );
+    return <EmptyProfiles />;
   }
 
   const items = compact ? state.value.slice(0, 3) : state.value;
   return (
-    <div className="profile-list">
-      {items.map((profile) => (
-        <article className="profile-row" key={profile.profile_id}>
-          <span className="profile-avatar" aria-hidden="true">{profile.name.trim().charAt(0).toUpperCase()}</span>
-          <div className="profile-detail">
-            <strong>{profile.name}</strong>
-            <span>{profile.sources.length} source{profile.sources.length === 1 ? "" : "s"}</span>
-          </div>
-          <div className="profile-destination">
-            <span>DESTINATION</span>
-            <code title={profile.target}>{profile.target}</code>
-          </div>
-          <span className="configured-badge"><span /> Configured</span>
-        </article>
-      ))}
+    <div className="profile-list" role="list" aria-label="Configured backup profiles">
+      {items.map((profile) => {
+        const isSelected = profile.profile_id === selectedProfileId;
+        return (
+          <article
+            className={`profile-row ${isSelected ? "selected" : ""}`}
+            key={profile.profile_id}
+            aria-selected={isSelected}
+          >
+            <div className="profile-header-row">
+              <span className="profile-avatar" aria-hidden="true">
+                {profile.name.trim().charAt(0).toUpperCase()}
+              </span>
+              <div className="profile-detail">
+                <strong title={profile.name}>{profile.name}</strong>
+                <span>
+                  {profile.sources.length} source{profile.sources.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="profile-header-actions">
+                {onSelectProfile && (
+                  <button
+                    type="button"
+                    className={`select-profile-btn ${isSelected ? "selected" : ""}`}
+                    onClick={() => onSelectProfile(profile.profile_id)}
+                    aria-pressed={isSelected}
+                    aria-label={`Select profile ${profile.name}`}
+                  >
+                    {isSelected ? "Selected" : "Select"}
+                  </button>
+                )}
+                <span className="configured-badge"><span /> Configured</span>
+              </div>
+            </div>
+
+            <div className="profile-paths-container">
+              <div className="path-group">
+                <span className="path-group-label">SOURCES</span>
+                {profile.sources.length === 0 ? (
+                  <span className="path-empty">No source paths configured</span>
+                ) : (
+                  profile.sources.map((src, idx) => (
+                    <div key={idx} className="path-row">
+                      <code
+                        className="path-value"
+                        title={src}
+                        tabIndex={0}
+                        aria-label={`Source path: ${src}`}
+                      >
+                        {src}
+                      </code>
+                      <CopyButton text={src} label="Copy source path" />
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="path-group">
+                <span className="path-group-label">DESTINATION</span>
+                <div className="path-row">
+                  <code
+                    className="path-value"
+                    title={profile.target}
+                    tabIndex={0}
+                    aria-label={`Destination path: ${profile.target}`}
+                  >
+                    {profile.target}
+                  </code>
+                  <CopyButton text={profile.target} label="Copy destination path" />
+                </div>
+              </div>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
