@@ -990,6 +990,72 @@ h1 {
   margin-top: 0;
 }
 
+.error-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.error-banner .error-time {
+  color: #9a625c;
+}
+
+.retry-button,
+.refresh-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.retry-button {
+  padding: 5px 10px;
+  border: 1px solid #d9a39d;
+  color: #8f3b33;
+  background: #fff;
+}
+
+.refresh-button {
+  padding: 7px 11px;
+  border: 1px solid #d5dbe6;
+  color: #3d5fc4;
+  background: #fff;
+}
+
+.retry-button:hover:not(:disabled),
+.refresh-button:hover:not(:disabled) {
+  background: #f4f6fb;
+}
+
+.retry-button:disabled,
+.refresh-button:disabled {
+  cursor: progress;
+  opacity: .7;
+}
+
+.retry-button:focus-visible,
+.refresh-button:focus-visible {
+  outline: 2px solid #3d5fc4;
+  outline-offset: 2px;
+}
+
+.refresh-icon {
+  font-size: 12px;
+}
+
+.refresh-icon.spinning {
+  animation: spin .9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1092,6 +1158,8 @@ h1 {
   }
 
   .page-heading {
+    flex-wrap: wrap;
+    gap: 12px;
     margin-bottom: 18px;
   }
 
