@@ -215,4 +215,72 @@ describe("BackInTime app", () => {
     expect(screen.getByRole("link", { name: "Overview" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^Profiles/ })).toBeInTheDocument();
   });
+
+  it("retries a failed profile request from the error state", async () => {
+    let profileAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith("/profiles") && ++profileAttempts <= 2) {
+          throw new TypeError("offline");
+        }
+        return new Response(JSON.stringify(profileResponse), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/profiles"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Retry loading profiles" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not reach the local BackInTime API.");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Retry loading profiles" }));
+    expect((await screen.findAllByText("Home files")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("refreshes profiles without sending duplicate requests", async () => {
+    render(
+      <MemoryRouter initialEntries={["/profiles"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect((await screen.findAllByText("Home files")).length).toBeGreaterThan(0);
+
+    const fetchMock = vi.mocked(fetch);
+    const profileCalls = () =>
+      fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/profiles")).length;
+    const before = profileCalls();
+    let release: () => void = () => undefined;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = () =>
+            resolve(
+              new Response(JSON.stringify(profileResponse), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+            );
+        }),
+    );
+
+    const button = screen.getByRole("button", { name: /Refresh profiles/ });
+    fireEvent.click(button);
+    const busy = await screen.findByRole("button", { name: /Refreshing/ });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(busy);
+    expect(profileCalls()).toBe(before + 1);
+
+    release();
+    expect(await screen.findByRole("button", { name: /Refresh profiles/ })).toBeEnabled();
+    expect(screen.getAllByText("Home files").length).toBeGreaterThan(0);
+  });
 });
