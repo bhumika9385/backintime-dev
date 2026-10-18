@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backintime.core.rsync_output import ChangeKind, Progress, TransferResult
@@ -69,6 +71,24 @@ class ProfilePatchRequest(BaseModel):
         if any(getattr(self, field) is None for field in self.model_fields_set):
             raise ValueError("Profile fields must not be null.")
         return self
+
+
+class SnapshotEntryResponse(BaseModel):
+    """Safe metadata for one browsable snapshot entry."""
+
+    name: str
+    kind: Literal["directory", "file", "symlink", "other"]
+    size_bytes: int
+    modified_time_ns: int
+
+
+class SnapshotDirectoryResponse(BaseModel):
+    """One bounded page of entries from a snapshot directory."""
+
+    snapshot_id: str
+    path: str
+    entries: list[SnapshotEntryResponse]
+    next_cursor: str | None
 
 
 class ErrorDetail(BaseModel):
