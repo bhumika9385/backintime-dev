@@ -131,13 +131,18 @@ npm run dev
 The Vite development server proxies `/api` to the loopback-only API. The API's
 interactive OpenAPI documentation is available at `http://127.0.0.1:8000/docs`.
 The current API supports health checks, non-sensitive runtime capability checks, and
-profile listing/detail and profile configuration CRUD. It does not start backups,
-expose snapshots, or perform restore/prune operations. Profile `GET` responses include
-an `ETag`; send that value as `If-Match` when creating, updating, or deleting profiles.
-Stale revisions are rejected with HTTP 412. Profile deletion only removes configuration
-and never deletes target files. Run a single API process so in-process update locking
-and revision checks are shared by all requests. Do not bind the API to a network-facing
-interface: the initial local application has no authentication. The API rejects
+profile listing/detail, profile configuration CRUD, and bounded browsing of validated,
+completed snapshot directories. It does not start backups or perform restore/prune
+operations. Profile `GET` responses include an `ETag`; send that value as `If-Match`
+when creating, updating, or deleting profiles. Stale revisions are rejected with HTTP
+412. Profile deletion only removes configuration and never deletes target files. Run a
+single API process so in-process update locking and revision checks are shared by all
+requests. Snapshot file browsing uses
+`GET /api/v1/profiles/{profile_id}/snapshots/{snapshot_id}/files` with an optional
+snapshot-relative `path`, `limit` (at most 100), and `after` cursor. It never accepts an
+absolute filesystem path and does not follow links outside the selected snapshot. Do not
+bind the API to a network-facing interface: the initial local application has no
+authentication. The API rejects
 non-loopback `Host` values and untrusted browser `Origin` values; the default Vite
 frontend origins (`http://127.0.0.1:5173`, `http://localhost:5173`, and
 `http://[::1]:5173`) are allowed. Requests without an `Origin` are allowed for safe
@@ -197,11 +202,12 @@ restore functionality against your only copy of important data.
 
 The initial foundation provides profile and configuration validation, atomic
 configuration writes, strict snapshot-ID parsing, read-only listing of snapshots marked
-complete in metadata, read-only repository health diagnostics, path-boundary
-validation, basic CLI version/help/config checks,
-and a local FastAPI/React interface for service status and configured profiles. The
-backup engine, restore, deletion, retention, scheduling, and snapshot UI are not
-implemented. This milestone has not been validated on Linux or with rsync.
+complete in metadata, bounded read-only browsing within complete snapshots,
+read-only repository health diagnostics, path-boundary validation, basic CLI
+version/help/config checks, and a local FastAPI/React interface for service status and
+configured profiles. The backup engine, restore, deletion, retention, scheduling, and
+snapshot UI are not implemented. This milestone has not been validated on Linux or with
+rsync.
 
 ## Testing Strategy
 
