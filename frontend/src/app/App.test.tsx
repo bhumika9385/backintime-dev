@@ -80,4 +80,38 @@ describe("BackInTime app", () => {
     expect(await screen.findByText("Configured profiles")).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("Home files").length).toBeGreaterThan(0));
   });
+
+  it("shows the selected profile from API data in the header", async () => {
+    render(
+      <MemoryRouter initialEntries={["/profiles"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const header = () => within(screen.getByText("Selected profile").parentElement as HTMLElement);
+    expect(await header().findByText("No profile selected")).toBeInTheDocument();
+
+    const selectButton = await screen.findByRole("button", { name: "Select Home files" });
+    expect(selectButton).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(selectButton);
+
+    expect(header().getByText("Home files")).toBeInTheDocument();
+    expect(selectButton).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(selectButton);
+    expect(header().getByText("No profile selected")).toBeInTheDocument();
+  });
+
+  it("does not show a fabricated profile in the header when profiles fail to load", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const header = within(screen.getByText("Selected profile").parentElement as HTMLElement);
+    expect(await header.findByText("Profiles unavailable")).toBeInTheDocument();
+  });
 });

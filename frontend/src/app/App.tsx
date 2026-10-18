@@ -52,8 +52,15 @@ function toLoadState<T, R>(
 
 function App() {
   const backend = useBackend();
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const profileCount =
     backend.profiles.status === "success" ? backend.profiles.value.length : undefined;
+  const selectedProfile =
+    backend.profiles.status === "success"
+      ? backend.profiles.value.find((profile) => profile.profile_id === selectedProfileId)
+      : undefined;
+  const toggleProfile = (profileId: string) =>
+    setSelectedProfileId((current) => (current === profileId ? null : profileId));
 
   return (
     <div className="app-shell">
@@ -106,6 +113,7 @@ function App() {
       <main className="main-area">
         <header className="topbar">
           <div className="breadcrumb">BackInTime <span>/</span> Local workspace</div>
+          <SelectedProfile state={backend.profiles} profile={selectedProfile} />
           <div className="topbar-right">
             <span className="local-badge"><span aria-hidden="true">⌑</span> This device</span>
             <span className="avatar" aria-label="Local user">L</span>
@@ -116,7 +124,16 @@ function App() {
             path="/"
             element={<Dashboard health={backend.health} system={backend.system} profiles={backend.profiles} />}
           />
-          <Route path="/profiles" element={<Profiles state={backend.profiles} />} />
+          <Route
+            path="/profiles"
+            element={
+              <Profiles
+                state={backend.profiles}
+                selectedProfileId={selectedProfile?.profile_id}
+                onSelect={toggleProfile}
+              />
+            }
+          />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <footer className="footer-note">
@@ -130,6 +147,24 @@ function App() {
 
 function navClass(isActive: boolean) {
   return `nav-item${isActive ? " active" : ""}`;
+}
+
+function SelectedProfile({ state, profile }: { state: LoadState<Profile[]>; profile?: Profile }) {
+  const text =
+    state.status === "loading"
+      ? "Loading profiles…"
+      : state.status === "error"
+        ? "Profiles unavailable"
+        : profile
+          ? profile.name
+          : "No profile selected";
+
+  return (
+    <div className="selected-profile" aria-live="polite">
+      <span className="selected-profile-label">Selected profile</span>
+      <strong className={profile ? "" : "muted"} title={profile?.name}>{text}</strong>
+    </div>
+  );
 }
 
 function Dashboard({
@@ -281,7 +316,15 @@ function StatCard({
   );
 }
 
-function Profiles({ state }: { state: LoadState<Profile[]> }) {
+function Profiles({
+  state,
+  selectedProfileId,
+  onSelect,
+}: {
+  state: LoadState<Profile[]>;
+  selectedProfileId?: string;
+  onSelect: (profileId: string) => void;
+}) {
   return (
     <section className="page-content">
       <div className="page-heading">
@@ -302,7 +345,7 @@ function Profiles({ state }: { state: LoadState<Profile[]> }) {
             </div>
             {state.status === "success" && <span className="result-count">{state.value.length} total</span>}
           </div>
-          <ProfileList state={state} />
+          <ProfileList state={state} selectedProfileId={selectedProfileId} onSelect={onSelect} />
         </section>
       )}
       <div className="notice">
@@ -313,7 +356,17 @@ function Profiles({ state }: { state: LoadState<Profile[]> }) {
   );
 }
 
-function ProfileList({ state, compact = false }: { state: LoadState<Profile[]>; compact?: boolean }) {
+function ProfileList({
+  state,
+  compact = false,
+  selectedProfileId,
+  onSelect,
+}: {
+  state: LoadState<Profile[]>;
+  compact?: boolean;
+  selectedProfileId?: string;
+  onSelect?: (profileId: string) => void;
+}) {
   if (state.status === "loading") return <p className="empty-copy">Loading configured profiles…</p>;
   if (state.status === "error") return <p className="empty-copy">Profile information could not be loaded.</p>;
   if (state.value.length === 0) {
@@ -341,6 +394,17 @@ function ProfileList({ state, compact = false }: { state: LoadState<Profile[]>; 
             <code title={profile.target}>{profile.target}</code>
           </div>
           <span className="configured-badge"><span /> Configured</span>
+          {onSelect && (
+            <button
+              type="button"
+              className="select-button"
+              aria-pressed={profile.profile_id === selectedProfileId}
+              aria-label={`Select ${profile.name}`}
+              onClick={() => onSelect(profile.profile_id)}
+            >
+              {profile.profile_id === selectedProfileId ? "Selected" : "Select"}
+            </button>
+          )}
         </article>
       ))}
     </div>
