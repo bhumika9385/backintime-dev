@@ -94,6 +94,25 @@ specific file. No backup, restore, or snapshot deletion command is implemented y
 See [the configuration guide](docs/configuration.md) for the current schema, validation
 rules, and a disposable example.
 
+### Repository health diagnostics
+
+`backintime diagnose` checks the backup target of every configured profile (or one
+profile with `--profile ID`) without creating, repairing, or deleting anything:
+
+```sh
+backintime diagnose
+backintime diagnose --profile home --min-free-mib 2048
+```
+
+Each snapshot directory is reported as `healthy` (metadata says `complete`),
+`incomplete` (no metadata or a state other than `complete`, usually an interrupted
+backup), `invalid` (malformed metadata, a mismatched snapshot ID, or a link/file where a
+directory is expected), or `inaccessible` (cannot be read). The repository takes the
+worst snapshot state; a missing target, such as an unmounted drive, is `inaccessible`.
+Low free space (below 1024 MiB by default) is reported as a warning. Every finding
+includes a suggested next step. The command exits with `0` when everything is healthy,
+`2` when it found a problem, and `1` when the configuration or profile cannot be loaded.
+
 ### Local API and frontend
 
 Install backend and frontend dependencies in separate terminals:
@@ -178,7 +197,8 @@ restore functionality against your only copy of important data.
 
 The initial foundation provides profile and configuration validation, atomic
 configuration writes, strict snapshot-ID parsing, read-only listing of snapshots marked
-complete in metadata, path-boundary validation, basic CLI version/help/config checks,
+complete in metadata, read-only repository health diagnostics, path-boundary
+validation, basic CLI version/help/config checks,
 and a local FastAPI/React interface for service status and configured profiles. The
 backup engine, restore, deletion, retention, scheduling, and snapshot UI are not
 implemented. This milestone has not been validated on Linux or with rsync.
