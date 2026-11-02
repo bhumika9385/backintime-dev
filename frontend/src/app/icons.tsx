@@ -67,6 +67,40 @@ const paths = {
       <path d="M12 7.75V8" />
     </>
   ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  edit: (
+    <>
+      <path d="M4.5 19.5h4l10-10a2.83 2.83 0 0 0-4-4l-10 10v4Z" />
+      <path d="m13.5 6.5 4 4" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4.5 7h15M9.5 7V4.5h5V7" />
+      <path d="M6.5 7l1 12.5h9l1-12.5M10 11v5M14 11v5" />
+    </>
+  ),
+  close: <path d="M6 6l12 12M18 6 6 18" />,
+  folder: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />,
+  file: (
+    <>
+      <path d="M6.5 3.5h7l4 4v13h-11Z" />
+      <path d="M13.5 3.5v4h4" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />
+      <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />
+    </>
+  ),
+  chevronRight: <path d="m9.5 6 6 6-6 6" />,
+  drive: (
+    <>
+      <rect x="3.5" y="13" width="17" height="6.5" rx="1.5" />
+      <path d="M5 13 7.5 5h9L19 13M16.5 16.25h.01" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

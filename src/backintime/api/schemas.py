@@ -91,6 +91,21 @@ class SnapshotDirectoryResponse(BaseModel):
     next_cursor: str | None
 
 
+class SnapshotSummaryResponse(BaseModel):
+    """One snapshot directory in a profile repository."""
+
+    snapshot_id: str
+    name: str | None
+    healthy: bool
+
+
+class SnapshotListResponse(BaseModel):
+    """Snapshots in one profile repository, newest first."""
+
+    profile_id: str
+    snapshots: list[SnapshotSummaryResponse]
+
+
 class ErrorDetail(BaseModel):
     """Stable API error fields."""
 
@@ -169,3 +184,31 @@ class TransferStatusResponse(BaseModel):
             changes=TransferChangesResponse(total=len(result.changes), by_kind=by_kind),
             diagnostic_count=len(result.diagnostics),
         )
+
+
+class JobLogEntryResponse(BaseModel):
+    """A non-sensitive job lifecycle message."""
+
+    timestamp: str
+    message: str
+
+
+class JobResponse(BaseModel):
+    """Current status of one background backup job."""
+
+    job_id: str
+    profile_id: str
+    state: Literal["queued", "running", "completed", "failed", "cancelled"]
+    created_at: str
+    updated_at: str
+    files_copied: int
+    bytes_copied: int
+    snapshot_id: str | None
+    error_message: str | None
+    logs: list[JobLogEntryResponse]
+
+
+class JobListResponse(BaseModel):
+    """Known background jobs, newest first."""
+
+    jobs: list[JobResponse]

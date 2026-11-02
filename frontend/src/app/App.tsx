@@ -1,55 +1,33 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
 import { ApiError, api } from "../lib/api";
-import { Icon, type IconName } from "./icons";
-import type { Health, Profile, SystemInfo } from "../types/api";
+import { Icon } from "./icons";
+import { DeleteProfileDialog, ProfileForm } from "./ProfileForm";
+import {
+  CopyButton,
+  ErrorBanner,
+  RefreshButton,
+  useResource,
+  type LoadState,
+  type Reload,
+} from "./shared";
+import { SnapshotsPage } from "./SnapshotsPage";
+import type { Health, Profile, ProfileInput, SystemInfo } from "../types/api";
 
 const CONFIGURATION_DOCS_URL = "https://github.com/timevault-dev/BackInTime#getting-started";
-
-type LoadState<T> =
-  | { status: "loading" }
-  | { status: "error"; message: string; requestId?: string; failedAt: number }
-  | { status: "success"; value: T };
-
-type Reload = () => Promise<void>;
-
-const loadProfiles = async () => (await api.profiles()).profiles;
-
-/** Load one API resource and expose a reload that ignores calls while a request is in flight. */
-function useResource<T>(fetcher: () => Promise<T>) {
-  const [state, setState] = useState<LoadState<T>>({ status: "loading" });
-  const [refreshing, setRefreshing] = useState(false);
-  const inFlight = useRef(false);
-  const mounted = useRef(true);
-
-  const reload = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    setRefreshing(true);
-    try {
-      const value = await fetcher();
-      if (mounted.current) setState({ status: "success", value });
-    } catch (error) {
-      if (mounted.current) setState(toErrorState(error));
-    } finally {
-      inFlight.current = false;
-      if (mounted.current) setRefreshing(false);
-    }
-  }, [fetcher]);
-
-  useEffect(() => {
-    mounted.current = true;
-    void reload();
-    return () => {
-      mounted.current = false;
-    };
-  }, [reload]);
-
-  return { state, refreshing, reload };
-}
+const STALE_CONFIGURATION_MESSAGE =
+  "The configuration was changed somewhere else. The latest version has been loaded; review it and try again.";
 
 function useBackend() {
+  // The configuration revision from the latest profile load, sent with every profile change.
+  const revision = useRef<string | null>(null);
+  const loadProfiles = useCallback(async () => {
+    const { value, etag } = await api.profilesWithRevision();
+    revision.current = etag;
+    return value.profiles;
+  }, []);
+
   const health = useResource<Health>(api.health);
   const system = useResource<SystemInfo>(api.systemInfo);
   const profiles = useResource<Profile[]>(loadProfiles);
@@ -59,6 +37,43 @@ function useBackend() {
   const reloadAll = useCallback(async () => {
     await Promise.all([reloadHealth(), reloadSystem(), reloadProfiles()]);
   }, [reloadHealth, reloadSystem, reloadProfiles]);
+
+  /** Run one profile change against the loaded revision, then reload the profile list. */
+  const mutate = useCallback(
+    async (change: (etag: string) => Promise<unknown>) => {
+      if (!revision.current) {
+        await reloadProfiles();
+        if (!revision.current) throw new Error("Profiles must load before they can be changed.");
+      }
+      try {
+        await change(revision.current);
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 412 || error.status === 428)) {
+          await reloadProfiles();
+          throw new ApiError(STALE_CONFIGURATION_MESSAGE, error.status, error.code, error.requestId);
+        }
+        throw error;
+      }
+      await reloadProfiles();
+    },
+    [reloadProfiles],
+  );
+
+  const profileActions = useMemo(
+    () => ({
+      create: (input: ProfileInput) => mutate((etag) => api.createProfile(input, etag)),
+      update: (profileId: string, input: ProfileInput) =>
+        mutate((etag) =>
+          api.updateProfile(
+            profileId,
+            { name: input.name, sources: input.sources, target: input.target, excludes: input.excludes },
+            etag,
+          ),
+        ),
+      remove: (profileId: string) => mutate((etag) => api.deleteProfile(profileId, etag)),
+    }),
+    [mutate],
+  );
 
   return {
     health: health.state,
@@ -71,15 +86,7 @@ function useBackend() {
       any: health.refreshing || system.refreshing || profiles.refreshing,
     },
     reload: { health: reloadHealth, system: reloadSystem, profiles: reloadProfiles, all: reloadAll },
-  };
-}
-
-function toErrorState(error: unknown): Extract<LoadState<never>, { status: "error" }> {
-  return {
-    status: "error",
-    message: error instanceof Error ? error.message : "An unexpected API error occurred.",
-    requestId: error instanceof ApiError ? error.requestId : undefined,
-    failedAt: Date.now(),
+    profileActions,
   };
 }
 
@@ -126,15 +133,10 @@ function App() {
             Profiles
             {profileCount !== undefined && <span className="nav-count">{profileCount}</span>}
           </NavLink>
-          <span className="nav-item disabled" aria-disabled="true">
+          <NavLink to="/snapshots" className={({ isActive }) => navClass(isActive)}>
             <Icon name="clock" className="nav-icon" />
             Snapshots
-            <span className="soon-label">Soon</span>
-          </span>
-          <span className="nav-item disabled" aria-disabled="true">
-            <Icon name="settings" className="nav-icon" />
-            Settings
-          </span>
+          </NavLink>
         </nav>
         <div className="sidebar-foot">
           <span className={`status-dot ${backend.health.status === "success" ? "online" : ""}`} />
@@ -190,6 +192,17 @@ function App() {
                 onSelectProfile={setSelectedProfileId}
                 refreshing={backend.refreshing.profiles}
                 onReload={backend.reload.profiles}
+                actions={backend.profileActions}
+              />
+            }
+          />
+          <Route
+            path="/snapshots"
+            element={
+              <SnapshotsPage
+                profiles={backend.profiles}
+                selectedProfileId={activeProfileId}
+                onSelectProfile={setSelectedProfileId}
               />
             }
           />
@@ -264,7 +277,7 @@ function Dashboard({
           </h2>
           <p>
             {health.status === "success"
-              ? "The local API is reachable. Backup operations are not available yet."
+              ? "The local API is reachable. You can manage profiles and run backups."
               : health.status === "error"
                 ? "Start the local API, then select Retry to reconnect."
                 : "Connecting to the local API."}
@@ -282,24 +295,6 @@ function Dashboard({
         </div>
       </section>
 
-      <div className="stats-grid">
-        <StatCard
-          label="BACKUP PROFILES"
-          value={
-            profiles.status === "success"
-              ? String(profiles.value.length).padStart(2, "0")
-              : profiles.status === "loading"
-                ? "—"
-                : "!"
-          }
-          note={profiles.status === "success" ? "Configured on this device" : "Profile data unavailable"}
-          icon="profiles"
-          accent="blue"
-        />
-        <StatCard label="SNAPSHOTS" value="—" note="Available after backup engine setup" icon="clock" accent="violet" />
-        <StatCard label="LAST BACKUP" value="—" note="No backup operations are available yet" icon="refresh" accent="green" />
-      </div>
-
       <div className="content-grid">
         <section className="panel profile-panel">
           <div className="panel-heading">
@@ -307,7 +302,7 @@ function Dashboard({
               <h2>Backup profiles</h2>
               <p>Configured source and destination pairs</p>
             </div>
-            <NavLink className="text-link" to="/profiles">View profiles <Icon name="arrowRight" /></NavLink>
+            <NavLink className="text-link" to="/profiles">Manage profiles <Icon name="arrowRight" /></NavLink>
           </div>
           <ProfileList
             state={profiles}
@@ -340,7 +335,10 @@ function Dashboard({
                   {system.value.rsync_available ? "Available" : "Not installed"}
                 </dd>
               </div>
-              <div><dt>Backup engine</dt><dd className="muted">Not implemented</dd></div>
+              <div>
+                <dt>Backup engine</dt>
+                <dd className="positive-text"><span className="tiny-status" />Built-in copy</dd>
+              </div>
             </dl>
           )}
         </section>
@@ -349,37 +347,18 @@ function Dashboard({
       <div className="notice">
         <Icon name="info" className="notice-icon" />
         <p>
-          <strong>Early development.</strong> Profile configuration and system checks are
-          available. Backup, restore, snapshot browsing, and retention are still under
-          development. No backup has been run by this application.
+          <strong>Early development.</strong> Profiles, backups, and read-only snapshot
+          browsing are available. Restore and retention are still under development. Test with
+          disposable data, not your only copy of important files.
         </p>
       </div>
     </section>
   );
 }
 
-function StatCard({
-  label,
-  value,
-  note,
-  icon,
-  accent,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  icon: IconName;
-  accent: string;
-}) {
-  return (
-    <article className="stat-card">
-      <div className={`stat-icon ${accent}`}><Icon name={icon} /></div>
-      <span className="stat-label">{label}</span>
-      <strong className="stat-value">{value}</strong>
-      <span className="stat-note">{note}</span>
-    </article>
-  );
-}
+type ProfileActions = Backend["profileActions"];
+
+type Editing = { mode: "create" } | { mode: "edit"; profile: Profile } | { mode: "delete"; profile: Profile };
 
 function Profiles({
   state,
@@ -387,22 +366,56 @@ function Profiles({
   onSelectProfile,
   refreshing,
   onReload,
+  actions,
 }: {
   state: LoadState<Profile[]>;
   selectedProfileId?: string | null;
   onSelectProfile?: (id: string) => void;
   refreshing: boolean;
   onReload: Reload;
+  actions: ProfileActions;
 }) {
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const existingIds = state.status === "success" ? state.value.map((p) => p.profile_id) : [];
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setMessage(null), 4000);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  const finish = (text: string) => {
+    setEditing(null);
+    setMessage(text);
+  };
+
   return (
     <section className="page-content">
       <div className="page-heading">
         <div>
           <p className="eyebrow">WORKSPACE</p>
           <h1>Profiles</h1>
-          <p className="subtitle">Source and destination settings loaded from the local configuration.</p>
+          <p className="subtitle">Choose what to back up and where snapshots are stored.</p>
         </div>
-        <RefreshButton label="Refresh profiles" refreshing={refreshing} onRefresh={onReload} />
+        <div className="heading-actions">
+          <RefreshButton label="Refresh profiles" refreshing={refreshing} onRefresh={onReload} />
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => setEditing({ mode: "create" })}
+            disabled={state.status !== "success"}
+          >
+            <Icon name="plus" /> New profile
+          </button>
+        </div>
+      </div>
+      <div className="toast-region" role="status" aria-live="polite">
+        {message && (
+          <div className="toast">
+            <Icon name="check" /> {message}
+          </div>
+        )}
       </div>
       {state.status === "error" ? (
         <ErrorBanner subject="profiles" state={state} retrying={refreshing} onRetry={onReload} />
@@ -411,7 +424,7 @@ function Profiles({
           <div className="panel-heading">
             <div>
               <h2>Configured profiles</h2>
-              <p>Read-only view · editing is not implemented</p>
+              <p>Changes are validated and saved to the local configuration file</p>
             </div>
             {state.status === "success" && <span className="result-count">{state.value.length} total</span>}
           </div>
@@ -419,28 +432,75 @@ function Profiles({
             state={state}
             selectedProfileId={selectedProfileId}
             onSelectProfile={onSelectProfile}
+            onCreate={() => setEditing({ mode: "create" })}
+            onEdit={(profile) => setEditing({ mode: "edit", profile })}
+            onDelete={(profile) => setEditing({ mode: "delete", profile })}
           />
         </section>
       )}
       <div className="notice">
         <Icon name="info" className="notice-icon" />
-        <p>Profiles can currently be configured by editing the validated local JSON configuration. In-app editing is not available.</p>
+        <p>
+          Removing a profile only removes it from the configuration. Snapshots already stored in
+          its destination are never deleted.
+        </p>
       </div>
+
+      {editing?.mode === "create" && (
+        <ProfileForm
+          profile={null}
+          existingIds={existingIds}
+          onCancel={() => setEditing(null)}
+          onSubmit={async (input) => {
+            await actions.create(input);
+            onSelectProfile?.(input.profile_id);
+            finish(`Created ${input.name}.`);
+          }}
+        />
+      )}
+      {editing?.mode === "edit" && (
+        <ProfileForm
+          profile={editing.profile}
+          existingIds={existingIds}
+          onCancel={() => setEditing(null)}
+          onSubmit={async (input) => {
+            await actions.update(editing.profile.profile_id, input);
+            finish(`Saved ${input.name}.`);
+          }}
+        />
+      )}
+      {editing?.mode === "delete" && (
+        <DeleteProfileDialog
+          profile={editing.profile}
+          onCancel={() => setEditing(null)}
+          onConfirm={async () => {
+            await actions.remove(editing.profile.profile_id);
+            finish(`Removed ${editing.profile.name}.`);
+          }}
+        />
+      )}
     </section>
   );
 }
 
-function EmptyProfiles() {
+function EmptyProfiles({ onCreate }: { onCreate?: () => void }) {
   return (
     <div className="empty-state" role="status">
       <span className="empty-icon"><Icon name="profiles" /></span>
       <h3>No profiles configured</h3>
       <p className="empty-explanation">
-        No backup profiles were found in your local configuration. In-app profile creation is not currently supported.
+        No backup profiles were found in your local configuration. A profile says which folders
+        to back up and where to store their snapshots.
       </p>
-      <p className="empty-instructions">
-        Configure profiles manually in your local configuration file.
-      </p>
+      {onCreate ? (
+        <button type="button" className="primary-button" onClick={onCreate}>
+          <Icon name="plus" /> Create your first profile
+        </button>
+      ) : (
+        <NavLink className="primary-button" to="/profiles">
+          <Icon name="plus" /> Create a profile
+        </NavLink>
+      )}
       <a
         href={CONFIGURATION_DOCS_URL}
         target="_blank"
@@ -454,75 +514,27 @@ function EmptyProfiles() {
   );
 }
 
-function CopyButton({
-  text,
-  label,
-}: {
-  text: string;
-  label: string;
-}) {
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState(false);
-
-  const handleCopy = async () => {
-    if (!text || text.trim() === "") {
-      setError(true);
-      setTimeout(() => setError(false), 2000);
-      return;
-    }
-
-    try {
-      if (typeof navigator !== "undefined" && navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setError(false);
-        setTimeout(() => setCopied(false), 2000);
-      } else {
-        throw new Error("Clipboard unavailable");
-      }
-    } catch {
-      setError(true);
-      setCopied(false);
-      setTimeout(() => setError(false), 2000);
-    }
-  };
-
-  return (
-    <div className="copy-action">
-      <button
-        type="button"
-        className={`copy-button ${copied ? "copied" : ""} ${error ? "copy-error" : ""}`}
-        onClick={handleCopy}
-        aria-label={label}
-        title={`${label}: ${text}`}
-      >
-        <Icon name={copied ? "check" : error ? "alert" : "copy"} className="copy-icon" />
-        <span className="copy-text">
-          {copied ? "Copied" : error ? "Failed" : "Copy"}
-        </span>
-      </button>
-      <span className="sr-only" role="status" aria-live="polite">
-        {copied ? `${label} copied` : error ? `Failed to copy ${label}` : ""}
-      </span>
-    </div>
-  );
-}
-
 function ProfileList({
   state,
   compact = false,
   selectedProfileId,
   onSelectProfile,
+  onCreate,
+  onEdit,
+  onDelete,
 }: {
   state: LoadState<Profile[]>;
   compact?: boolean;
   selectedProfileId?: string | null;
   onSelectProfile?: (id: string) => void;
+  onCreate?: () => void;
+  onEdit?: (profile: Profile) => void;
+  onDelete?: (profile: Profile) => void;
 }) {
   if (state.status === "loading") return <p className="empty-copy">Loading configured profiles…</p>;
   if (state.status === "error") return <p className="empty-copy">Profile information could not be loaded.</p>;
   if (state.value.length === 0) {
-    return <EmptyProfiles />;
+    return <EmptyProfiles onCreate={onCreate} />;
   }
 
   const items = compact ? state.value.slice(0, 3) : state.value;
@@ -534,7 +546,7 @@ function ProfileList({
           <article
             className={`profile-row ${isSelected ? "selected" : ""}`}
             key={profile.profile_id}
-            aria-selected={isSelected}
+            role="listitem"
           >
             <div className="profile-header-row">
               <span className="profile-avatar" aria-hidden="true">
@@ -544,6 +556,8 @@ function ProfileList({
                 <strong title={profile.name}>{profile.name}</strong>
                 <span>
                   {profile.sources.length} source{profile.sources.length === 1 ? "" : "s"}
+                  {profile.excludes.length > 0 &&
+                    ` · ${profile.excludes.length} exclude rule${profile.excludes.length === 1 ? "" : "s"}`}
                 </span>
               </div>
               <div className="profile-header-actions">
@@ -559,6 +573,28 @@ function ProfileList({
                   </button>
                 )}
                 <span className="configured-badge"><span /> Configured</span>
+                {onEdit && (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => onEdit(profile)}
+                    aria-label={`Edit profile ${profile.name}`}
+                    title="Edit profile"
+                  >
+                    <Icon name="edit" />
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    className="icon-button danger"
+                    onClick={() => onDelete(profile)}
+                    aria-label={`Remove profile ${profile.name}`}
+                    title="Remove profile"
+                  >
+                    <Icon name="trash" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -603,67 +639,6 @@ function ProfileList({
         );
       })}
     </div>
-  );
-}
-
-function ErrorBanner({
-  subject,
-  state,
-  retrying = false,
-  onRetry,
-}: {
-  subject: string;
-  state: Extract<LoadState<unknown>, { status: "error" }>;
-  retrying?: boolean;
-  onRetry?: Reload;
-}) {
-  return (
-    // Keyed by failure time so a failed retry re-announces the alert.
-    <div className="error-banner" role="alert" key={state.failedAt}>
-      <span className="error-icon"><Icon name="alert" /></span>
-      <div className="error-copy">
-        <strong>Could not load {subject}</strong>
-        <p>{state.message}{state.requestId ? ` Request ID: ${state.requestId}` : ""}</p>
-        <p className="error-time">
-          Last attempt failed at {new Date(state.failedAt).toLocaleTimeString()}.
-        </p>
-      </div>
-      {onRetry && (
-        <button
-          type="button"
-          className="retry-button"
-          disabled={retrying}
-          aria-busy={retrying}
-          aria-label={retrying ? `Retrying ${subject}` : `Retry loading ${subject}`}
-          onClick={() => void onRetry()}
-        >
-          {retrying ? "Retrying…" : "Retry"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function RefreshButton({
-  label,
-  refreshing,
-  onRefresh,
-}: {
-  label: string;
-  refreshing: boolean;
-  onRefresh: Reload;
-}) {
-  return (
-    <button
-      type="button"
-      className="refresh-button"
-      disabled={refreshing}
-      aria-busy={refreshing}
-      onClick={() => void onRefresh()}
-    >
-      <Icon name="refresh" className={`refresh-icon${refreshing ? " spinning" : ""}`} />
-      {refreshing ? "Refreshing…" : label}
-    </button>
   );
 }
 
