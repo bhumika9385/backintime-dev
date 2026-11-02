@@ -533,3 +533,38 @@ def test_snapshot_browsing_bounds_page_size_and_hides_incomplete_snapshots(
     assert oversized.json()["error"]["code"] == "REQUEST_INVALID"
     assert incomplete_response.status_code == 404
     assert incomplete_response.json()["error"]["code"] == "SNAPSHOT_NOT_FOUND"
+
+
+def test_snapshot_listing_includes_incomplete_snapshots_newest_first(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    target = tmp_path / "target"
+    _write_profiles(config_path, {"home": target})
+    _write_snapshot(target, "20260101-120000-001")
+    _write_snapshot(target, "20260301-120000-001")
+    (target / "20260201-120000-001").mkdir()
+    (target / "not-a-snapshot").mkdir()
+
+    response = _client(config_path).get("/api/v1/profiles/home/snapshots")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "profile_id": "home",
+        "snapshots": [
+            {"snapshot_id": "20260301-120000-001", "name": None, "healthy": True},
+            {"snapshot_id": "20260201-120000-001", "name": None, "healthy": False},
+            {"snapshot_id": "20260101-120000-001", "name": None, "healthy": True},
+        ],
+    }
+
+
+def test_snapshot_listing_for_missing_target_is_empty_and_unknown_profile_404(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    _write_profiles(config_path, {"home": tmp_path / "missing"})
+    client = _client(config_path)
+
+    assert client.get("/api/v1/profiles/home/snapshots").json()["snapshots"] == []
+    missing = client.get("/api/v1/profiles/other/snapshots")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "PROFILE_NOT_FOUND"

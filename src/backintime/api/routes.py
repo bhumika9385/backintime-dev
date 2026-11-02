@@ -10,25 +10,33 @@ from pathlib import Path
 from fastapi import APIRouter, Header, HTTPException, Query, Response
 
 from backintime import __version__
-from backintime.api.dependencies import ConfigStoreDependency
+from backintime.api.dependencies import ConfigStoreDependency, JobServiceDependency
 from backintime.api.schemas import (
     HealthResponse,
+    JobListResponse,
+    JobLogEntryResponse,
+    JobResponse,
     ProfileCreateRequest,
     ProfileListResponse,
     ProfilePatchRequest,
     ProfileResponse,
     SnapshotDirectoryResponse,
     SnapshotEntryResponse,
+    SnapshotListResponse,
+    SnapshotSummaryResponse,
     SystemInfoResponse,
 )
 from backintime.core.config import Configuration
 from backintime.core.exceptions import (
     ConfigurationConflictError,
     ConfigurationError,
+    JobConflictError,
+    JobStoreError,
     RepositoryError,
     SnapshotNotFoundError,
     ValidationError,
 )
+from backintime.core.jobs import BackupJob
 from backintime.core.profile import Profile
 from backintime.core.repository import Repository
 from backintime.core.snapshot_id import SnapshotID
@@ -66,27 +74,7 @@ def browse_snapshot_files(
     after: str | None = Query(default=None),
 ) -> SnapshotDirectoryResponse:
     """Browse one safe, bounded page in a healthy profile snapshot."""
-    try:
-        configuration = config_store.load()
-    except ConfigurationError as exc:
-        _logger.error("Configuration read failed: %s", exc)
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "CONFIGURATION_INVALID",
-                "message": "The application configuration could not be loaded or validated.",
-            },
-        ) from exc
-
-    profile = next(
-        (item for item in configuration.profiles if item.profile_id == profile_id),
-        None,
-    )
-    if profile is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "PROFILE_NOT_FOUND", "message": "The selected profile does not exist."},
-        )
+    profile = _load_profile(config_store, profile_id)
 
     try:
         validated_snapshot_id = SnapshotID.parse(snapshot_id)
@@ -142,6 +130,38 @@ def browse_snapshot_files(
             for entry in listing.entries
         ],
         next_cursor=listing.next_cursor,
+    )
+
+
+@router.get("/profiles/{profile_id}/snapshots", response_model=SnapshotListResponse)
+def list_profile_snapshots(
+    profile_id: str,
+    config_store: ConfigStoreDependency,
+) -> SnapshotListResponse:
+    """List snapshots in a profile repository, newest first, including incomplete ones."""
+    profile = _load_profile(config_store, profile_id)
+    try:
+        records = Repository(profile.target).list_snapshots(include_incomplete=True)
+    except RepositoryError as exc:
+        _logger.error("Snapshot listing failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "SNAPSHOT_REPOSITORY_UNAVAILABLE",
+                "message": "The snapshot repository for this profile could not be read.",
+            },
+        ) from exc
+
+    return SnapshotListResponse(
+        profile_id=profile.profile_id,
+        snapshots=[
+            SnapshotSummaryResponse(
+                snapshot_id=str(record.snapshot_id),
+                name=record.name,
+                healthy=record.healthy,
+            )
+            for record in records
+        ],
     )
 
 
@@ -287,6 +307,116 @@ def delete_profile(
 
     _, revision = _update_configuration(config_store, expected_revision, remove_profile)
     return Response(status_code=204, headers={"ETag": _etag(revision)})
+
+
+@router.post(
+    "/profiles/{profile_id}/backups",
+    response_model=JobResponse,
+    status_code=202,
+)
+def start_backup(
+    profile_id: str,
+    config_store: ConfigStoreDependency,
+    jobs: JobServiceDependency,
+) -> JobResponse:
+    """Queue a backup for one profile and return the new job's status."""
+    profile = _load_profile(config_store, profile_id)
+    try:
+        job = jobs.submit(profile)
+    except JobConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "JOB_CONFLICT",
+                "message": "This profile already has a queued or running backup.",
+            },
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "PROFILE_INVALID", "message": str(exc)},
+        ) from exc
+    except JobStoreError as exc:
+        raise _job_store_error(exc) from exc
+    return _job_response(job)
+
+
+@router.get("/jobs", response_model=JobListResponse)
+def list_jobs(jobs: JobServiceDependency) -> JobListResponse:
+    """List known backup jobs, newest first."""
+    return JobListResponse(jobs=[_job_response(job) for job in jobs.list()])
+
+
+@router.get("/jobs/{job_id}", response_model=JobResponse)
+def get_job(job_id: str, jobs: JobServiceDependency) -> JobResponse:
+    """Return the current status of one backup job."""
+    job = jobs.get(job_id)
+    if job is None:
+        raise _job_not_found()
+    return _job_response(job)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobResponse)
+def cancel_job(job_id: str, jobs: JobServiceDependency) -> JobResponse:
+    """Request cancellation; a running backup stops at its next safe point."""
+    try:
+        job = jobs.cancel(job_id)
+    except JobStoreError as exc:
+        raise _job_store_error(exc) from exc
+    if job is None:
+        raise _job_not_found()
+    return _job_response(job)
+
+
+def _job_response(job: BackupJob) -> JobResponse:
+    return JobResponse(
+        job_id=job.job_id,
+        profile_id=job.profile_id,
+        state=job.state,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        files_copied=job.files_copied,
+        bytes_copied=job.bytes_copied,
+        snapshot_id=job.snapshot_id,
+        error_message=job.error_message,
+        logs=[
+            JobLogEntryResponse(timestamp=entry.timestamp, message=entry.message)
+            for entry in job.logs
+        ],
+    )
+
+
+def _job_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail={"code": "JOB_NOT_FOUND", "message": "The selected job does not exist."},
+    )
+
+
+def _job_store_error(exc: JobStoreError) -> HTTPException:
+    _logger.error("Background job service error: %s", exc)
+    return HTTPException(
+        status_code=503,
+        detail={"code": "JOB_SERVICE_UNAVAILABLE", "message": str(exc)},
+    )
+
+
+def _load_profile(config_store: ConfigStoreDependency, profile_id: str) -> Profile:
+    try:
+        configuration = config_store.load()
+    except ConfigurationError as exc:
+        raise _configuration_error(exc) from exc
+
+    profile = next(
+        (item for item in configuration.profiles if item.profile_id == profile_id),
+        None,
+    )
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "PROFILE_NOT_FOUND", "message": "The selected profile does not exist."},
+        )
+    return profile
 
 
 def _profile_response(profile: Profile) -> ProfileResponse:

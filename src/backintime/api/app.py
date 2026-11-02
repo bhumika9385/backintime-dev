@@ -1,8 +1,10 @@
 """FastAPI application factory for loopback-hosted local management."""
 
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
+from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -14,6 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from backintime.api.routes import router
 from backintime.api.schemas import ErrorDetail, ErrorResponse
 from backintime.core.config import ConfigStore
+from backintime.core.jobs import JobService
 
 _request_id: ContextVar[str] = ContextVar("backintime_request_id", default="-")
 _logger = logging.getLogger("backintime.api")
@@ -28,14 +31,30 @@ _DEVELOPMENT_ORIGINS = frozenset(
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
-def create_app(*, config_store: ConfigStore | None = None) -> FastAPI:
-    """Create an API application with an injectable configuration store."""
+def create_app(
+    *,
+    config_store: ConfigStore | None = None,
+    job_service: JobService | None = None,
+    job_state_path: Path | None = None,
+) -> FastAPI:
+    """Create an API application with injectable configuration and job services."""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        service = app.state.job_service
+        if isinstance(service, JobService):
+            service.shutdown()
+
     app = FastAPI(
         title="BackInTime API",
         version="0.1.0",
         description="Loopback-local API for the independent BackInTime application.",
+        lifespan=lifespan,
     )
     app.state.config_store = config_store or ConfigStore(ConfigStore.default_path())
+    app.state.job_service = job_service
+    app.state.job_state_path = job_state_path or JobService.default_path()
     app.include_router(router)
 
     @app.middleware("http")

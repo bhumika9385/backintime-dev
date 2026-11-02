@@ -48,7 +48,7 @@ describe("BackInTime app", () => {
 
     expect(await screen.findByText("Service is ready")).toBeInTheDocument();
     expect(screen.getAllByText("Home files").length).toBeGreaterThan(0);
-    expect(screen.getByText(/No backup has been run by this application/)).toBeInTheDocument();
+    expect(screen.getByText(/Restore and retention are still under development/)).toBeInTheDocument();
     expect(screen.getByText("Not installed")).toBeInTheDocument();
   });
 
