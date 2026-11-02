@@ -23,3 +23,15 @@ class RepositoryError(BackInTimeError):
 
 class SnapshotNotFoundError(BackInTimeError):
     """Raised when a requested snapshot is not present and healthy."""
+
+
+class BackupCancelledError(BackInTimeError):
+    """Raised when a backup reaches a safe cancellation point."""
+
+
+class JobStoreError(BackInTimeError):
+    """Raised when background job state cannot be loaded or persisted."""
+
+
+class JobConflictError(BackInTimeError):
+    """Raised when a requested job conflicts with one that is queued or running."""
